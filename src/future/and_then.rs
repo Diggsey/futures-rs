@@ -1,4 +1,4 @@
-use {Future, IntoFuture, Poll};
+use {Future, IntoFuture, Poll, Pollable};
 use super::chain::Chain;
 
 /// Future for the `and_then` combinator, chaining a computation onto the end of
@@ -27,12 +27,19 @@ impl<A, B, F> Future for AndThen<A, B, F>
 {
     type Item = B::Item;
     type Error = B::Error;
+}
 
-    fn poll(&mut self) -> Poll<B::Item, B::Error> {
+impl<A, B, F, TaskT> Pollable<TaskT> for AndThen<A, B, F>
+    where A: Future + Pollable<TaskT>,
+          B: IntoFuture<Error=A::Error>,
+          F: FnOnce(A::Item) -> B,
+          <B as IntoFuture>::Future: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<B::Item, B::Error> {
         self.state.poll(|result, f| {
             result.map(|e| {
                 Err(f(e).into_future())
             })
-        })
+        }, task)
     }
 }

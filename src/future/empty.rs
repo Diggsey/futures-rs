@@ -2,7 +2,7 @@
 
 use core::marker;
 
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 
 /// A future which is never resolved.
 ///
@@ -24,8 +24,10 @@ pub fn empty<T, E>() -> Empty<T, E> {
 impl<T, E> Future for Empty<T, E> {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<T, E> {
+impl<T, E, TaskT> Pollable<TaskT> for Empty<T, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<T, E> {
         Ok(Async::NotReady)
     }
 }

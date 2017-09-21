@@ -117,71 +117,7 @@ if_std! {
 
 use {Poll, stream};
 
-/// Trait for types which are a placeholder of a value that may become
-/// available at some later point in time.
-///
-/// In addition to the documentation here you can also find more information
-/// about futures [online] at [https://tokio.rs](https://tokio.rs)
-///
-/// [online]: https://tokio.rs/docs/getting-started/futures/
-///
-/// Futures are used to provide a sentinel through which a value can be
-/// referenced. They crucially allow chaining and composing operations through
-/// consumption which allows expressing entire trees of computation as one
-/// sentinel value.
-///
-/// The ergonomics and implementation of the `Future` trait are very similar to
-/// the `Iterator` trait in that there is just one methods you need
-/// to implement, but you get a whole lot of others for free as a result.
-///
-/// # The `poll` method
-///
-/// The core method of future, `poll`, is used to attempt to generate the value
-/// of a `Future`. This method *does not block* but is allowed to inform the
-/// caller that the value is not ready yet. Implementations of `poll` may
-/// themselves do work to generate the value, but it's guaranteed that this will
-/// never block the calling thread.
-///
-/// A key aspect of this method is that if the value is not yet available the
-/// current task is scheduled to receive a notification when it's later ready to
-/// be made available. This follows what's typically known as a "readiness" or
-/// "pull" model where values are pulled out of futures on demand, and
-/// otherwise a task is notified when a value might be ready to get pulled out.
-///
-/// The `poll` method is not intended to be called in general, but rather is
-/// typically called in the context of a "task" which drives a future to
-/// completion. For more information on this see the `task` module.
-///
-/// More information about the details of `poll` and the nitty-gritty of tasks
-/// can be [found online at tokio.rs][poll-dox].
-///
-/// [poll-dox]: https://tokio.rs/docs/going-deeper-futures/futures-model/
-///
-/// # Combinators
-///
-/// Like iterators, futures provide a large number of combinators to work with
-/// futures to express computations in a much more natural method than
-/// scheduling a number of callbacks. For example the `map` method can change
-/// a `Future<Item=T>` to a `Future<Item=U>` or an `and_then` combinator could
-/// create a future after the first one is done and only be resolved when the
-/// second is done.
-///
-/// Combinators act very similarly to the methods on the `Iterator` trait itself
-/// or those on `Option` and `Result`. Like with iterators, the combinators are
-/// zero-cost and don't impose any extra layers of indirection you wouldn't
-/// otherwise have to write down.
-///
-/// More information about combinators can be found [on tokio.rs].
-///
-/// [on tokio.rs]: https://tokio.rs/docs/going-deeper-futures/futures-mechanics/
-pub trait Future {
-    /// The type of value that this future will resolved with if it is
-    /// successful.
-    type Item;
-
-    /// The type of error that this future will resolve with if it fails in a
-    /// normal fashion.
-    type Error;
+pub trait Pollable<TaskT>: Future {
 
     /// Query this future to see if its value has become available, registering
     /// interest if it is not.
@@ -269,7 +205,74 @@ pub trait Future {
     /// This future may have failed to finish the computation, in which case
     /// the `Err` variant will be returned with an appropriate payload of an
     /// error.
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error>;
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error>;
+}
+
+/// Trait for types which are a placeholder of a value that may become
+/// available at some later point in time.
+///
+/// In addition to the documentation here you can also find more information
+/// about futures [online] at [https://tokio.rs](https://tokio.rs)
+///
+/// [online]: https://tokio.rs/docs/getting-started/futures/
+///
+/// Futures are used to provide a sentinel through which a value can be
+/// referenced. They crucially allow chaining and composing operations through
+/// consumption which allows expressing entire trees of computation as one
+/// sentinel value.
+///
+/// The ergonomics and implementation of the `Future` trait are very similar to
+/// the `Iterator` trait in that there is just one methods you need
+/// to implement, but you get a whole lot of others for free as a result.
+///
+/// # The `poll` method
+///
+/// The core method of future, `poll`, is used to attempt to generate the value
+/// of a `Future`. This method *does not block* but is allowed to inform the
+/// caller that the value is not ready yet. Implementations of `poll` may
+/// themselves do work to generate the value, but it's guaranteed that this will
+/// never block the calling thread.
+///
+/// A key aspect of this method is that if the value is not yet available the
+/// current task is scheduled to receive a notification when it's later ready to
+/// be made available. This follows what's typically known as a "readiness" or
+/// "pull" model where values are pulled out of futures on demand, and
+/// otherwise a task is notified when a value might be ready to get pulled out.
+///
+/// The `poll` method is not intended to be called in general, but rather is
+/// typically called in the context of a "task" which drives a future to
+/// completion. For more information on this see the `task` module.
+///
+/// More information about the details of `poll` and the nitty-gritty of tasks
+/// can be [found online at tokio.rs][poll-dox].
+///
+/// [poll-dox]: https://tokio.rs/docs/going-deeper-futures/futures-model/
+///
+/// # Combinators
+///
+/// Like iterators, futures provide a large number of combinators to work with
+/// futures to express computations in a much more natural method than
+/// scheduling a number of callbacks. For example the `map` method can change
+/// a `Future<Item=T>` to a `Future<Item=U>` or an `and_then` combinator could
+/// create a future after the first one is done and only be resolved when the
+/// second is done.
+///
+/// Combinators act very similarly to the methods on the `Iterator` trait itself
+/// or those on `Option` and `Result`. Like with iterators, the combinators are
+/// zero-cost and don't impose any extra layers of indirection you wouldn't
+/// otherwise have to write down.
+///
+/// More information about combinators can be found [on tokio.rs].
+///
+/// [on tokio.rs]: https://tokio.rs/docs/going-deeper-futures/futures-mechanics/
+pub trait Future {
+    /// The type of value that this future will resolved with if it is
+    /// successful.
+    type Item;
+
+    /// The type of error that this future will resolve with if it fails in a
+    /// normal fashion.
+    type Error;
 
     /// Block the current thread until this future is resolved.
     ///

@@ -2,7 +2,7 @@ use std::prelude::v1::*;
 use std::any::Any;
 use std::panic::{catch_unwind, UnwindSafe, AssertUnwindSafe};
 
-use {Future, Poll, Async};
+use {Future, Pollable, Poll, Async};
 
 /// Future for the `catch_unwind` combinator.
 ///
@@ -27,9 +27,14 @@ impl<F> Future for CatchUnwind<F>
     type Item = Result<F::Item, F::Error>;
     type Error = Box<Any + Send>;
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+}
+
+impl<F, TaskT> Pollable<TaskT> for CatchUnwind<F>
+    where F: Pollable<TaskT> + UnwindSafe, TaskT: UnwindSafe
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         let mut future = self.future.take().expect("cannot poll twice");
-        let (res, future) = catch_unwind(|| (future.poll(), future))?;
+        let (res, future) = catch_unwind(AssertUnwindSafe(|| (future.poll(task), future)))?;
         match res {
             Ok(Async::NotReady) => {
                 self.future = Some(future);
@@ -44,8 +49,12 @@ impl<F> Future for CatchUnwind<F>
 impl<F: Future> Future for AssertUnwindSafe<F> {
     type Item = F::Item;
     type Error = F::Error;
+}
 
-    fn poll(&mut self) -> Poll<F::Item, F::Error> {
-        self.0.poll()
+impl<F, TaskT> Pollable<TaskT> for AssertUnwindSafe<F>
+    where F: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<F::Item, F::Error> {
+        self.0.poll(task)
     }
 }

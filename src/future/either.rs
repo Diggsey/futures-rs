@@ -1,4 +1,4 @@
-use {Future, Poll};
+use {Future, Poll, Pollable};
 
 /// Combines two different futures yielding the same item and error
 /// types into a single type.
@@ -29,11 +29,16 @@ impl<A, B> Future for Either<A, B>
 {
     type Item = A::Item;
     type Error = A::Error;
+}
 
-    fn poll(&mut self) -> Poll<A::Item, A::Error> {
+impl<A, B, TaskT> Pollable<TaskT> for Either<A, B>
+    where A: Pollable<TaskT>,
+          B: Pollable<TaskT, Item = A::Item, Error = A::Error>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<A::Item, A::Error> {
         match *self {
-            Either::A(ref mut a) => a.poll(),
-            Either::B(ref mut b) => b.poll(),
+            Either::A(ref mut a) => a.poll(task),
+            Either::B(ref mut b) => b.poll(task),
         }
     }
 }

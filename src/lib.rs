@@ -175,7 +175,7 @@ mod poll;
 pub use poll::{Poll, Async, AsyncSink, StartSend};
 
 pub mod future;
-pub use future::{Future, IntoFuture};
+pub use future::{Future, IntoFuture, Pollable};
 
 pub mod stream;
 pub use stream::Stream;
