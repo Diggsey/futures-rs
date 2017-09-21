@@ -1,4 +1,4 @@
-use {Future, IntoFuture, Poll};
+use {Future, IntoFuture, Poll, Pollable};
 use core::fmt;
 use super::chain::Chain;
 
@@ -35,15 +35,22 @@ pub fn new<A>(future: A) -> Flatten<A>
 impl<A> Future for Flatten<A>
     where A: Future,
           A::Item: IntoFuture,
-          <<A as Future>::Item as IntoFuture>::Error: From<<A as Future>::Error>
+          <A::Item as IntoFuture>::Error: From<A::Error>
 {
     type Item = <<A as Future>::Item as IntoFuture>::Item;
     type Error = <<A as Future>::Item as IntoFuture>::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<A, TaskT> Pollable<TaskT> for Flatten<A>
+    where A: Pollable<TaskT>,
+          A::Item: IntoFuture,
+          <A::Item as IntoFuture>::Future: Pollable<TaskT>,
+          <A::Item as IntoFuture>::Error: From<A::Error>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         self.state.poll(|a, ()| {
             let future = a?.into_future();
             Ok(Err(future))
-        })
+        }, task)
     }
 }

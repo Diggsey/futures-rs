@@ -1,4 +1,4 @@
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 
 /// Future for the `select` combinator, waiting for one of two futures to
 /// complete.
@@ -41,15 +41,20 @@ impl<A, B> Future for Select<A, B>
 {
     type Item = (A::Item, SelectNext<A, B>);
     type Error = (A::Error, SelectNext<A, B>);
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<A, B, TaskT> Pollable<TaskT> for Select<A, B>
+    where A: Pollable<TaskT>,
+          B: Pollable<TaskT, Item=A::Item, Error=A::Error>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         let (ret, is_a) = match self.inner {
             Some((ref mut a, ref mut b)) => {
-                match a.poll() {
+                match a.poll(task) {
                     Err(a) => (Err(a), true),
                     Ok(Async::Ready(a)) => (Ok(a), true),
                     Ok(Async::NotReady) => {
-                        match b.poll() {
+                        match b.poll(task) {
                             Err(a) => (Err(a), false),
                             Ok(Async::Ready(a)) => (Ok(a), false),
                             Ok(Async::NotReady) => return Ok(Async::NotReady),
@@ -76,11 +81,16 @@ impl<A, B> Future for SelectNext<A, B>
 {
     type Item = A::Item;
     type Error = A::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<A, B, TaskT> Pollable<TaskT> for SelectNext<A, B>
+    where A: Pollable<TaskT>,
+          B: Pollable<TaskT, Item=A::Item, Error=A::Error>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         match self.inner {
-            OneOf::A(ref mut a) => a.poll(),
-            OneOf::B(ref mut b) => b.poll(),
+            OneOf::A(ref mut a) => a.poll(task),
+            OneOf::B(ref mut b) => b.poll(task),
         }
     }
 }

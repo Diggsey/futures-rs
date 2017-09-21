@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use {Poll, Async};
+use {Poll, Async, PollableStream, PollableSink};
 use {StartSend, AsyncSink};
 use sink::Sink;
 use stream::Stream;
@@ -44,13 +44,13 @@ impl<S: Sink> Buffer<S> {
         self.sink
     }
 
-    fn try_empty_buffer(&mut self) -> Poll<(), S::SinkError> {
+    fn try_empty_buffer<TaskT>(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> where S: PollableSink<TaskT> {
         while let Some(item) = self.buf.pop_front() {
-            if let AsyncSink::NotReady(item) = self.sink.start_send(item)? {
+            if let AsyncSink::NotReady(item) = self.sink.start_send(task, item)? {
                 self.buf.push_front(item);
 
                 // ensure that we attempt to complete any pushes we've started
-                self.sink.poll_complete()?;
+                self.sink.poll_complete(task)?;
 
                 return Ok(Async::NotReady);
             }
@@ -64,18 +64,23 @@ impl<S: Sink> Buffer<S> {
 impl<S> Stream for Buffer<S> where S: Sink + Stream {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, S::Error> {
-        self.sink.poll()
+// Forwarding impl of Stream from the underlying sink
+impl<S, TaskT> PollableStream<TaskT> for Buffer<S> where S: PollableStream<TaskT> + Sink {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, S::Error> {
+        self.sink.poll(task)
     }
 }
 
 impl<S: Sink> Sink for Buffer<S> {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        self.try_empty_buffer()?;
+impl<S, TaskT> PollableSink<TaskT> for Buffer<S> where S: PollableSink<TaskT> {
+    fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.try_empty_buffer(task)?;
         if self.buf.len() > self.cap {
             return Ok(AsyncSink::NotReady(item));
         }
@@ -83,17 +88,17 @@ impl<S: Sink> Sink for Buffer<S> {
         Ok(AsyncSink::Ready)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        try_ready!(self.try_empty_buffer());
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        try_ready!(self.try_empty_buffer(task));
         debug_assert!(self.buf.is_empty());
-        self.sink.poll_complete()
+        self.sink.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
         if self.buf.len() > 0 {
-            try_ready!(self.try_empty_buffer());
+            try_ready!(self.try_empty_buffer(task));
         }
         assert_eq!(self.buf.len(), 0);
-        self.sink.close()
+        self.sink.close(task)
     }
 }

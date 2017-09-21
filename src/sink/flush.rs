@@ -1,4 +1,4 @@
-use {Poll, Async, Future};
+use {Poll, Async, Future, Pollable, PollableSink};
 use sink::Sink;
 
 /// Future for the `Sink::flush` combinator, which polls the sink until all data
@@ -28,10 +28,12 @@ impl<S: Sink> Flush<S> {
 impl<S: Sink> Future for Flush<S> {
     type Item = S;
     type Error = S::SinkError;
+}
 
-    fn poll(&mut self) -> Poll<S, S::SinkError> {
+impl<S, TaskT> Pollable<TaskT> for Flush<S> where S: PollableSink<TaskT> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<S, S::SinkError> {
         let mut sink = self.sink.take().expect("Attempted to poll Flush after it completed");
-        if sink.poll_complete()?.is_ready() {
+        if sink.poll_complete(task)?.is_ready() {
             Ok(Async::Ready(sink))
         } else {
             self.sink = Some(sink);

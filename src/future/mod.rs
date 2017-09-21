@@ -108,9 +108,13 @@ if_std! {
     impl<F: ?Sized + Future> Future for ::std::boxed::Box<F> {
         type Item = F::Item;
         type Error = F::Error;
+    }
 
-        fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-            (**self).poll()
+    impl<F, TaskT> Pollable<TaskT> for ::std::boxed::Box<F>
+        where F: ?Sized + Pollable<TaskT>
+    {
+        fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
+            (**self).poll(task)
         }
     }
 }
@@ -1020,9 +1024,13 @@ pub trait Future {
 impl<'a, F: ?Sized + Future> Future for &'a mut F {
     type Item = F::Item;
     type Error = F::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        (**self).poll()
+impl<'a, F, TaskT> Pollable<TaskT> for &'a mut F
+    where F: ?Sized + Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
+        (**self).poll(task)
     }
 }
 

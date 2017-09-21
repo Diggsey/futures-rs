@@ -1,4 +1,4 @@
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 
 /// Do something with the item of a future, passing it on.
 ///
@@ -26,9 +26,14 @@ impl<A, F> Future for Inspect<A, F>
 {
     type Item = A::Item;
     type Error = A::Error;
+}
 
-    fn poll(&mut self) -> Poll<A::Item, A::Error> {
-        match self.future.poll() {
+impl<A, F, TaskT> Pollable<TaskT> for Inspect<A, F>
+    where A: Pollable<TaskT>,
+          F: FnOnce(&A::Item),
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<A::Item, A::Error> {
+        match self.future.poll(task) {
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Ok(Async::Ready(e)) => {
                 (self.f.take().expect("cannot poll Inspect twice"))(&e);

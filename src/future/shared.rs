@@ -13,7 +13,7 @@
 //! assert_eq!(6, *shared2.wait().unwrap());
 //! ```
 
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 use task::{self, Task};
 use executor::{self, Notify, Spawn};
 
@@ -125,8 +125,12 @@ impl<F> Future for Shared<F>
 {
     type Item = SharedItem<F::Item>;
     type Error = SharedError<F::Error>;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<F, TaskT> Pollable<TaskT> for Shared<F>
+    where F: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         self.set_waiter();
 
         match self.inner.notifier.state.compare_and_swap(IDLE, POLLING, SeqCst) {

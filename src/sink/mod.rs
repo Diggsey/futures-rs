@@ -81,43 +81,7 @@ pub use self::send_all::SendAll;
 pub use self::map_err::SinkMapErr;
 pub use self::from_err::SinkFromErr;
 
-/// A `Sink` is a value into which other values can be sent, asynchronously.
-///
-/// Basic examples of sinks include the sending side of:
-///
-/// - Channels
-/// - Sockets
-/// - Pipes
-///
-/// In addition to such "primitive" sinks, it's typical to layer additional
-/// functionality, such as buffering, on top of an existing sink.
-///
-/// Sending to a sink is "asynchronous" in the sense that the value may not be
-/// sent in its entirety immediately. Instead, values are sent in a two-phase
-/// way: first by initiating a send, and then by polling for completion. This
-/// two-phase setup is analogous to buffered writing in synchronous code, where
-/// writes often succeed immediately, but internally are buffered and are
-/// *actually* written only upon flushing.
-///
-/// In addition, the `Sink` may be *full*, in which case it is not even possible
-/// to start the sending process.
-///
-/// As with `Future` and `Stream`, the `Sink` trait is built from a few core
-/// required methods, and a host of default methods for working in a
-/// higher-level way. The `Sink::send_all` combinator is of particular
-/// importance: you can use it to send an entire stream to a sink, which is
-/// the simplest way to ultimately consume a sink.
-///
-/// You can find more information/tutorials about streams [online at
-/// https://tokio.rs][online]
-///
-/// [online]: https://tokio.rs/docs/getting-started/streams-and-sinks/
-pub trait Sink {
-    /// The type of value that the sink accepts.
-    type SinkItem;
-
-    /// The type of value produced by the sink when an error occurs.
-    type SinkError;
+pub trait PollableSink<TaskT>: Sink {
 
     /// Begin the process of sending a value to the sink.
     ///
@@ -157,7 +121,7 @@ pub trait Sink {
     ///
     /// - It is called outside of the context of a task.
     /// - A previous call to `start_send` or `poll_complete` yielded an error.
-    fn start_send(&mut self, item: Self::SinkItem)
+    fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem)
                   -> StartSend<Self::SinkItem, Self::SinkError>;
 
     /// Flush all output from this sink, if necessary.
@@ -208,7 +172,7 @@ pub trait Sink {
     /// In the 0.2 release series of futures this method will be renamed to
     /// `poll_flush`. For 0.1, however, the breaking change is not happening
     /// yet.
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError>;
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError>;
 
     /// A method to indicate that no more values will ever be pushed into this
     /// sink.
@@ -276,13 +240,53 @@ pub trait Sink {
     /// to implement it whenever you implement `Sink` locally. It is especially
     /// crucial to be sure to close inner sinks, if applicable.
     #[cfg(feature = "with-deprecated")]
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        self.poll_complete()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        self.poll_complete(task)
     }
 
     /// dox (you should see the above, not this)
     #[cfg(not(feature = "with-deprecated"))]
-    fn close(&mut self) -> Poll<(), Self::SinkError>;
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError>;
+
+}
+
+/// A `Sink` is a value into which other values can be sent, asynchronously.
+///
+/// Basic examples of sinks include the sending side of:
+///
+/// - Channels
+/// - Sockets
+/// - Pipes
+///
+/// In addition to such "primitive" sinks, it's typical to layer additional
+/// functionality, such as buffering, on top of an existing sink.
+///
+/// Sending to a sink is "asynchronous" in the sense that the value may not be
+/// sent in its entirety immediately. Instead, values are sent in a two-phase
+/// way: first by initiating a send, and then by polling for completion. This
+/// two-phase setup is analogous to buffered writing in synchronous code, where
+/// writes often succeed immediately, but internally are buffered and are
+/// *actually* written only upon flushing.
+///
+/// In addition, the `Sink` may be *full*, in which case it is not even possible
+/// to start the sending process.
+///
+/// As with `Future` and `Stream`, the `Sink` trait is built from a few core
+/// required methods, and a host of default methods for working in a
+/// higher-level way. The `Sink::send_all` combinator is of particular
+/// importance: you can use it to send an entire stream to a sink, which is
+/// the simplest way to ultimately consume a sink.
+///
+/// You can find more information/tutorials about streams [online at
+/// https://tokio.rs][online]
+///
+/// [online]: https://tokio.rs/docs/getting-started/streams-and-sinks/
+pub trait Sink {
+    /// The type of value that the sink accepts.
+    type SinkItem;
+
+    /// The type of value produced by the sink when an error occurs.
+    type SinkError;
 
     /// Creates a new object which will produce a synchronous sink.
     ///

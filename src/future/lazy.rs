@@ -3,7 +3,7 @@
 
 use core::mem;
 
-use {Future, IntoFuture, Poll};
+use {Future, IntoFuture, Poll, Pollable};
 
 /// A future which defers creation of the actual future until a callback is
 /// scheduled.
@@ -77,8 +77,14 @@ impl<F, R> Future for Lazy<F, R>
 {
     type Item = R::Item;
     type Error = R::Error;
+}
 
-    fn poll(&mut self) -> Poll<R::Item, R::Error> {
-        self.get().poll()
+impl<F, R, TaskT> Pollable<TaskT> for Lazy<F, R>
+    where F: FnOnce() -> R,
+          R: IntoFuture,
+          R::Future: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<R::Item, R::Error> {
+        self.get().poll(task)
     }
 }

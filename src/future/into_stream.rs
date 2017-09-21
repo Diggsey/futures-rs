@@ -1,4 +1,4 @@
-use {Async, Poll};
+use {Async, Poll, Pollable, PollableStream};
 use Future;
 use stream::Stream;
 
@@ -18,12 +18,16 @@ pub fn new<F: Future>(future: F) -> IntoStream<F> {
 impl<F: Future> Stream for IntoStream<F> {
     type Item = F::Item;
     type Error = F::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<F, TaskT> PollableStream<TaskT> for IntoStream<F>
+    where F: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         let ret = match self.future {
             None => return Ok(Async::Ready(None)),
             Some(ref mut future) => {
-                match future.poll() {
+                match future.poll(task) {
                     Ok(Async::NotReady) => return Ok(Async::NotReady),
                     Err(e) => Err(e),
                     Ok(Async::Ready(r)) => Ok(r),

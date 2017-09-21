@@ -1,4 +1,4 @@
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 
 /// Future for the `map_err` combinator, changing the error type of a future.
 ///
@@ -25,9 +25,14 @@ impl<U, A, F> Future for MapErr<A, F>
 {
     type Item = A::Item;
     type Error = U;
+}
 
-    fn poll(&mut self) -> Poll<A::Item, U> {
-        let e = match self.future.poll() {
+impl<U, A, F, TaskT> Pollable<TaskT> for MapErr<A, F>
+    where A: Pollable<TaskT>,
+          F: FnOnce(A::Error) -> U,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<A::Item, U> {
+        let e = match self.future.poll(task) {
             Ok(Async::NotReady) => return Ok(Async::NotReady),
             other => other,
         };

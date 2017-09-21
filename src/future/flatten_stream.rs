@@ -1,4 +1,4 @@
-use {Async, Future, Poll};
+use {Async, Future, Poll, PollableStream, Pollable};
 use core::fmt;
 use stream::Stream;
 
@@ -55,12 +55,18 @@ impl<F> Stream for FlattenStream<F>
 {
     type Item = <F::Item as Stream>::Item;
     type Error = <F::Item as Stream>::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+
+impl<F, TaskT> PollableStream<TaskT> for FlattenStream<F>
+    where F: Pollable<TaskT>,
+          <F as Future>::Item: PollableStream<TaskT, Error=F::Error>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             let (next_state, ret_opt) = match self.state {
                 State::Future(ref mut f) => {
-                    match f.poll() {
+                    match f.poll(task) {
                         Ok(Async::NotReady) => {
                             // State is not changed, early return.
                             return Ok(Async::NotReady)
@@ -79,7 +85,7 @@ impl<F> Stream for FlattenStream<F>
                 State::Stream(ref mut s) => {
                     // Just forward call to the stream,
                     // do not track its state.
-                    return s.poll();
+                    return s.poll(task);
                 }
                 State::Eof => {
                     (State::Done, Some(Ok(Async::Ready(None))))

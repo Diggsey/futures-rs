@@ -178,10 +178,10 @@ pub mod future;
 pub use future::{Future, IntoFuture, Pollable};
 
 pub mod stream;
-pub use stream::Stream;
+pub use stream::{Stream, PollableStream};
 
 pub mod sink;
-pub use sink::Sink;
+pub use sink::{Sink, PollableSink};
 
 #[deprecated(since = "0.1.4", note = "import through the future module instead")]
 #[cfg(feature = "with-deprecated")]

@@ -1,4 +1,4 @@
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 use future::Either;
 
 /// Future for the `merge` combinator, waiting for one of two differently-typed
@@ -18,13 +18,15 @@ pub fn new<A, B>(a: A, b: B) -> Select2<A, B> {
 impl<A, B> Future for Select2<A, B> where A: Future, B: Future {
     type Item = Either<(A::Item, B), (B::Item, A)>;
     type Error = Either<(A::Error, B), (B::Error, A)>;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<A, B, TaskT> Pollable<TaskT> for Select2<A, B> where A: Pollable<TaskT>, B: Pollable<TaskT> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         let (mut a, mut b) = self.inner.take().expect("cannot poll Select2 twice");
-        match a.poll() {
+        match a.poll(task) {
             Err(e) => Err(Either::A((e, b))),
             Ok(Async::Ready(x)) => Ok(Async::Ready(Either::A((x, b)))),
-            Ok(Async::NotReady) => match b.poll() {
+            Ok(Async::NotReady) => match b.poll(task) {
                 Err(e) => Err(Either::B((e, a))),
                 Ok(Async::Ready(x)) => Ok(Async::Ready(Either::B((x, a)))),
                 Ok(Async::NotReady) => {

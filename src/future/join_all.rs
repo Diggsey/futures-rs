@@ -6,7 +6,7 @@ use std::prelude::v1::*;
 use std::fmt;
 use std::mem;
 
-use {Future, IntoFuture, Poll, Async};
+use {Future, IntoFuture, Poll, Async, Pollable};
 
 #[derive(Debug)]
 enum ElemState<T> where T: Future {
@@ -89,15 +89,20 @@ impl<I> Future for JoinAll<I>
 {
     type Item = Vec<<I::Item as IntoFuture>::Item>;
     type Error = <I::Item as IntoFuture>::Error;
+}
 
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<I, TaskT> Pollable<TaskT> for JoinAll<I>
+    where I: IntoIterator,
+          I::Item: IntoFuture,
+          <I::Item as IntoFuture>::Future: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         let mut all_done = true;
 
         for idx in 0 .. self.elems.len() {
             let done_val = match self.elems[idx] {
                 ElemState::Pending(ref mut t) => {
-                    match t.poll() {
+                    match t.poll(task) {
                         Ok(Async::Ready(v)) => Ok(v),
                         Ok(Async::NotReady) => {
                             all_done = false;

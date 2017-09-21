@@ -4,7 +4,7 @@
 // available to the crate, but not without it.
 use core::marker::PhantomData;
 
-use {Poll, Async};
+use {Poll, Async, PollableStream};
 use stream::Stream;
 
 
@@ -33,9 +33,13 @@ pub fn new<S, E>(s: S) -> Results<S, E> where S: Stream {
 impl<S: Stream, E> Stream for Results<S, E> {
     type Item = Result<S::Item, S::Error>;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<Result<S::Item, S::Error>>, E> {
-        match self.inner.poll() {
+impl<S, E, TaskT> PollableStream<TaskT> for Results<S, E>
+    where S: PollableStream<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Result<S::Item, S::Error>>, E> {
+        match self.inner.poll(task) {
             Ok(Async::Ready(Some(item))) => Ok(Async::Ready(Some(Ok(item)))),
             Err(e) => Ok(Async::Ready(Some(Err(e)))),
             Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
@@ -43,4 +47,3 @@ impl<S: Stream, E> Stream for Results<S, E> {
         }
     }
 }
-

@@ -135,6 +135,35 @@ if_std! {
     }
 }
 
+pub trait PollableStream<TaskT>: Stream {
+    /// Attempt to pull out the next value of this stream, returning `None` if
+    /// the stream is finished.
+    ///
+    /// This method, like `Future::poll`, is the sole method of pulling out a
+    /// value from a stream. This method must also be run within the context of
+    /// a task typically and implementors of this trait must ensure that
+    /// implementations of this method do not block, as it may cause consumers
+    /// to behave badly.
+    ///
+    /// # Return value
+    ///
+    /// If `NotReady` is returned then this stream's next value is not ready
+    /// yet and implementations will ensure that the current task will be
+    /// notified when the next value may be ready. If `Some` is returned then
+    /// the returned value represents the next value on the stream. `Err`
+    /// indicates an error happened, while `Ok` indicates whether there was a
+    /// new item on the stream or whether the stream has terminated.
+    ///
+    /// # Panics
+    ///
+    /// Once a stream is finished, that is `Ready(None)` has been returned,
+    /// further calls to `poll` may result in a panic or other "bad behavior".
+    /// If this is difficult to guard against then the `fuse` adapter can be
+    /// used to ensure that `poll` always has well-defined semantics.
+    // TODO: more here
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error>;
+}
+
 /// A stream of values, not all of which may have been produced yet.
 ///
 /// `Stream` is a trait to represent any source of sequential events or items
@@ -180,33 +209,6 @@ pub trait Stream {
 
     /// The type of error this stream may generate.
     type Error;
-
-    /// Attempt to pull out the next value of this stream, returning `None` if
-    /// the stream is finished.
-    ///
-    /// This method, like `Future::poll`, is the sole method of pulling out a
-    /// value from a stream. This method must also be run within the context of
-    /// a task typically and implementors of this trait must ensure that
-    /// implementations of this method do not block, as it may cause consumers
-    /// to behave badly.
-    ///
-    /// # Return value
-    ///
-    /// If `NotReady` is returned then this stream's next value is not ready
-    /// yet and implementations will ensure that the current task will be
-    /// notified when the next value may be ready. If `Some` is returned then
-    /// the returned value represents the next value on the stream. `Err`
-    /// indicates an error happened, while `Ok` indicates whether there was a
-    /// new item on the stream or whether the stream has terminated.
-    ///
-    /// # Panics
-    ///
-    /// Once a stream is finished, that is `Ready(None)` has been returned,
-    /// further calls to `poll` may result in a panic or other "bad behavior".
-    /// If this is difficult to guard against then the `fuse` adapter can be
-    /// used to ensure that `poll` always has well-defined semantics.
-    // TODO: more here
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error>;
 
     // TODO: should there also be a method like `poll` but doesn't return an
     //       item? basically just says "please make more progress internally"

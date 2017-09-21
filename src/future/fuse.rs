@@ -1,4 +1,4 @@
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 
 /// A future which "fuses" a future once it's been resolved.
 ///
@@ -22,9 +22,13 @@ pub fn new<A: Future>(f: A) -> Fuse<A> {
 impl<A: Future> Future for Fuse<A> {
     type Item = A::Item;
     type Error = A::Error;
+}
 
-    fn poll(&mut self) -> Poll<A::Item, A::Error> {
-        let res = self.future.as_mut().map(|f| f.poll());
+impl<A, TaskT> Pollable<TaskT> for Fuse<A>
+    where A: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<A::Item, A::Error> {
+        let res = self.future.as_mut().map(|f| f.poll(task));
         match res.unwrap_or(Ok(Async::NotReady)) {
             res @ Ok(Async::Ready(_)) |
             res @ Err(_) => {
