@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
-use {Async, Future, Poll};
+use {Async, Future, Poll, Pollable};
 use task::{self, Task};
 
 /// A type of futures-powered synchronization primitive which is a mutex between
@@ -242,8 +242,10 @@ pub struct BiLockAcquire<T> {
 impl<T> Future for BiLockAcquire<T> {
     type Item = BiLockAcquired<T>;
     type Error = ();
+}
 
-    fn poll(&mut self) -> Poll<BiLockAcquired<T>, ()> {
+impl<T, TaskT> Pollable<TaskT> for BiLockAcquire<T> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<BiLockAcquired<T>, ()> {
         match self.inner.as_ref().expect("cannot poll after Ready").poll_lock() {
             Async::Ready(r) => {
                 mem::forget(r);

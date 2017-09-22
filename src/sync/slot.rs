@@ -4,7 +4,7 @@ use std::mem;
 use std::sync::{Arc, Weak, Mutex};
 
 use task::{self, Task};
-use {Sink, Stream, AsyncSink, Async, Poll, StartSend};
+use {Sink, Stream, AsyncSink, Async, Poll, StartSend, PollableSink, PollableStream};
 
 /// Slot is very similar to unbounded channel but only stores last value sent
 ///
@@ -82,19 +82,8 @@ impl<T> Sender<T> {
         }
         return Ok(result);
     }
-}
 
-impl<T> Sink for Sender<T> {
-    type SinkItem = T;
-    type SinkError = SendError<T>;
-    fn start_send(&mut self, item: T) -> StartSend<T, SendError<T>> {
-        self.swap(item)?;
-        Ok(AsyncSink::Ready)
-    }
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        Ok(Async::Ready(()))
-    }
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
+    pub fn sync_close(&mut self) {
         // Do this step first so that the lock is dropped *and*
         // weakref is dropped when `unpark` is called
         let task = {
@@ -112,20 +101,41 @@ impl<T> Sink for Sender<T> {
         if let Some(task) = task {
             task.notify();
         }
+    }
+}
+
+impl<T> Sink for Sender<T> {
+    type SinkItem = T;
+    type SinkError = SendError<T>;
+}
+
+impl<T, TaskT> PollableSink<TaskT> for Sender<T> {
+    fn start_send(&mut self, task: &mut TaskT, item: T) -> StartSend<T, SendError<T>> {
+        self.swap(item)?;
+        Ok(AsyncSink::Ready)
+    }
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        Ok(Async::Ready(()))
+    }
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        self.sync_close();
         Ok(Async::Ready(()))
     }
 }
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        self.close().ok();
+        self.sync_close();
     }
 }
 
 impl<T> Stream for Receiver<T> {
     type Item = T;
     type Error = ();  // actually void
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+}
+
+impl<T, TaskT> PollableStream<TaskT> for Receiver<T> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         let result = {
             let mut inner = self.inner.lock().unwrap();
             if inner.value.is_none() {

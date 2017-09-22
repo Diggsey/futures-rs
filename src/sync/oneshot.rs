@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::error::Error;
 use std::fmt;
 
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable};
 use future::{lazy, Lazy, Executor, IntoFuture};
 use lock::Lock;
 use task::{self, Task};
@@ -385,8 +385,10 @@ impl<T> Receiver<T> {
 impl<T> Future for Receiver<T> {
     type Item = T;
     type Error = Canceled;
+}
 
-    fn poll(&mut self) -> Poll<T, Canceled> {
+impl<T, TaskT> Pollable<TaskT> for Receiver<T> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<T, Canceled> {
         self.inner.recv()
     }
 }
@@ -490,8 +492,10 @@ impl<T, E> SpawnHandle<T, E> {
 impl<T, E> Future for SpawnHandle<T, E> {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<T, E> {
+impl<T, E, TaskT> Pollable<TaskT> for SpawnHandle<T, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<T, E> {
         match self.rx.inner.recv() {
             Ok(Async::Ready(Ok(t))) => Ok(t.into()),
             Ok(Async::Ready(Err(e))) => Err(e),
@@ -517,8 +521,10 @@ impl<T, E> Drop for SpawnHandle<T, E> {
 impl<F: Future> Future for Execute<F> {
     type Item = ();
     type Error = ();
+}
 
-    fn poll(&mut self) -> Poll<(), ()> {
+impl<F, TaskT> Pollable<TaskT> for Execute<F> where F: Pollable<TaskT> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<(), ()> {
         // If we're canceled then we may want to bail out early.
         //
         // If the `forget` function was called, though, then we keep going.
@@ -528,7 +534,7 @@ impl<F: Future> Future for Execute<F> {
             }
         }
 
-        let result = match self.future.poll() {
+        let result = match self.future.poll(task) {
             Ok(Async::NotReady) => return Ok(Async::NotReady),
             Ok(Async::Ready(t)) => Ok(t),
             Err(e) => Err(e),

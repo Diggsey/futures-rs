@@ -81,7 +81,7 @@ use task::{self, Task};
 use future::Executor;
 use sink::SendAll;
 use resultstream::{self, Results};
-use {Async, AsyncSink, Future, Poll, StartSend, Sink, Stream, PollableStream, PollableSink};
+use {Async, AsyncSink, Future, Poll, StartSend, Sink, Stream, PollableStream, PollableSink, Pollable};
 
 mod queue;
 
@@ -683,16 +683,18 @@ impl<T> UnboundedSender<T> {
 impl<T> Sink for UnboundedSender<T> {
     type SinkItem = T;
     type SinkError = SendError<T>;
+}
 
-    fn start_send(&mut self, msg: T) -> StartSend<T, SendError<T>> {
-        self.0.start_send(msg)
+impl<T, TaskT> PollableSink<TaskT> for UnboundedSender<T> {
+    fn start_send(&mut self, task: &mut TaskT, msg: T) -> StartSend<T, SendError<T>> {
+        self.0.start_send(task, msg)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), SendError<T>> {
-        self.0.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), SendError<T>> {
+        self.0.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), SendError<T>> {
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), SendError<T>> {
         Ok(Async::Ready(()))
     }
 }
@@ -700,17 +702,19 @@ impl<T> Sink for UnboundedSender<T> {
 impl<'a, T> Sink for &'a UnboundedSender<T> {
     type SinkItem = T;
     type SinkError = SendError<T>;
+}
 
-    fn start_send(&mut self, msg: T) -> StartSend<T, SendError<T>> {
+impl<'a, T, TaskT> PollableSink<TaskT> for &'a UnboundedSender<T> {
+    fn start_send(&mut self, task: &mut TaskT, msg: T) -> StartSend<T, SendError<T>> {
         self.0.do_send_nb(msg)?;
         Ok(AsyncSink::Ready)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), SendError<T>> {
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), SendError<T>> {
         Ok(Async::Ready(()))
     }
 
-    fn close(&mut self) -> Poll<(), SendError<T>> {
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), SendError<T>> {
         Ok(Async::Ready(()))
     }
 }
@@ -970,9 +974,11 @@ impl<T> UnboundedReceiver<T> {
 impl<T> Stream for UnboundedReceiver<T> {
     type Item = T;
     type Error = ();
+}
 
-    fn poll(&mut self) -> Poll<Option<T>, ()> {
-        self.0.poll()
+impl<T, TaskT> PollableStream<TaskT> for UnboundedReceiver<T> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T>, ()> {
+        self.0.poll(task)
     }
 }
 
@@ -1058,9 +1064,11 @@ pub fn spawn_unbounded<S, E>(stream: S, executor: &E) -> SpawnHandle<S::Item, S:
 impl<I, E> Stream for SpawnHandle<I, E> {
     type Item = I;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<I>, E> {
-        match self.rx.poll() {
+impl<I, E, TaskT> PollableStream<TaskT> for SpawnHandle<I, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<I>, E> {
+        match self.rx.poll(task) {
             Ok(Async::Ready(Some(Ok(t)))) => Ok(Async::Ready(Some(t.into()))),
             Ok(Async::Ready(Some(Err(e)))) => Err(e),
             Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
@@ -1080,9 +1088,11 @@ impl<I, E> fmt::Debug for SpawnHandle<I, E> {
 impl<S: Stream> Future for Execute<S> {
     type Item = ();
     type Error = ();
+}
 
-    fn poll(&mut self) -> Poll<(), ()> {
-        match self.inner.poll() {
+impl<S, TaskT> Pollable<TaskT> for Execute<S> where S: PollableStream<TaskT> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<(), ()> {
+        match self.inner.poll(task) {
             Ok(Async::NotReady) => Ok(Async::NotReady),
             _ => Ok(Async::Ready(()))
         }
