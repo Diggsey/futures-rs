@@ -1,6 +1,6 @@
 use core::marker;
 
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 use stream::Stream;
 
 /// A stream which is just a shim over an underlying instance of `Iterator`.
@@ -41,8 +41,12 @@ impl<I, E> Stream for IterOk<I, E>
 {
     type Item = I::Item;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<I::Item>, E> {
+impl<I, E, TaskT> PollableStream<TaskT> for IterOk<I, E>
+    where I: Iterator,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<I::Item>, E> {
         Ok(Async::Ready(self.iter.next()))
     }
 }

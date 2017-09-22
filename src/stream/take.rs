@@ -1,4 +1,4 @@
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 use stream::Stream;
 
 /// A stream combinator which returns a maximum number of elements.
@@ -51,17 +51,21 @@ impl<S> ::sink::Sink for Take<S>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+impl<S, TaskT> ::sink::PollableSink<TaskT> for Take<S>
+    where S: ::sink::PollableSink<TaskT> + Stream
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -70,12 +74,16 @@ impl<S> Stream for Take<S>
 {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, S::Error> {
+impl<S, TaskT> PollableStream<TaskT> for Take<S>
+    where S: PollableStream<TaskT>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, S::Error> {
         if self.remaining == 0 {
             Ok(Async::Ready(None))
         } else {
-            let next = try_ready!(self.stream.poll());
+            let next = try_ready!(self.stream.poll(task));
             match next {
                 Some(_) => self.remaining -= 1,
                 None => self.remaining = 0,

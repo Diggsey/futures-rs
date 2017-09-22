@@ -1,14 +1,17 @@
 //! Definition of the `PollFn` combinator
 
-use {Stream, Poll};
+use std::marker::PhantomData;
+
+use {Stream, Poll, PollableStream};
 
 /// A stream which adapts a function returning `Poll`.
 ///
 /// Created by the `poll_fn` function.
 #[derive(Debug)]
 #[must_use = "streams do nothing unless polled"]
-pub struct PollFn<F> {
+pub struct PollFn<F, TaskT> {
     inner: F,
+    phantom: PhantomData<FnMut(TaskT)>
 }
 
 /// Creates a new stream wrapping around a function returning `Poll`.
@@ -29,21 +32,26 @@ pub struct PollFn<F> {
 ///     Ok(Async::Ready(Some("Hello, World!".to_owned())))
 /// });
 /// ```
-pub fn poll_fn<T, E, F>(f: F) -> PollFn<F>
+pub fn poll_fn<T, E, F, TaskT>(f: F) -> PollFn<F, TaskT>
 where
-    F: FnMut() -> Poll<Option<T>, E>,
+    F: FnMut(&mut TaskT) -> Poll<Option<T>, E>,
 {
-    PollFn { inner: f }
+    PollFn { inner: f, phantom: PhantomData }
 }
 
-impl<T, E, F> Stream for PollFn<F>
+impl<T, E, F, TaskT> Stream for PollFn<F, TaskT>
 where
-    F: FnMut() -> Poll<Option<T>, E>,
+    F: FnMut(&mut TaskT) -> Poll<Option<T>, E>,
 {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<T>, E> {
-        (self.inner)()
+impl<T, E, F, TaskT> PollableStream<TaskT> for PollFn<F, TaskT>
+where
+    F: FnMut(&mut TaskT) -> Poll<Option<T>, E>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T>, E> {
+        (self.inner)(task)
     }
 }

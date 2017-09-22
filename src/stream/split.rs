@@ -2,7 +2,7 @@ use std::any::Any;
 use std::error::Error;
 use std::fmt;
 
-use {StartSend, Sink, Stream, Poll, Async, AsyncSink};
+use {StartSend, Sink, Stream, Poll, Async, AsyncSink, PollableStream, PollableSink};
 use sync::BiLock;
 
 /// A `Stream` part of the split pair
@@ -21,10 +21,12 @@ impl<S> SplitStream<S> {
 impl<S: Stream> Stream for SplitStream<S> {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, S::Error> {
+impl<S, TaskT> PollableStream<TaskT> for SplitStream<S> where S: PollableStream<TaskT> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, S::Error> {
         match self.0.poll_lock() {
-            Async::Ready(mut inner) => inner.poll(),
+            Async::Ready(mut inner) => inner.poll(task),
             Async::NotReady => Ok(Async::NotReady),
         }
     }
@@ -48,26 +50,28 @@ impl<S> SplitSink<S> {
 impl<S: Sink> Sink for SplitSink<S> {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem)
+impl<S, TaskT> PollableSink<TaskT> for SplitSink<S> where S: PollableSink<TaskT> {
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem)
         -> StartSend<S::SinkItem, S::SinkError>
     {
         match self.0.poll_lock() {
-            Async::Ready(mut inner) => inner.start_send(item),
+            Async::Ready(mut inner) => inner.start_send(task, item),
             Async::NotReady => Ok(AsyncSink::NotReady(item)),
         }
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
         match self.0.poll_lock() {
-            Async::Ready(mut inner) => inner.poll_complete(),
+            Async::Ready(mut inner) => inner.poll_complete(task),
             Async::NotReady => Ok(Async::NotReady),
         }
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
         match self.0.poll_lock() {
-            Async::Ready(mut inner) => inner.close(),
+            Async::Ready(mut inner) => inner.close(task),
             Async::NotReady => Ok(Async::NotReady),
         }
     }

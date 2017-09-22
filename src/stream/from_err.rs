@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use poll::Poll;
-use Async;
+use {Async, PollableStream, PollableSink};
 use stream::Stream;
 
 /// A stream combinator to change the error type of a stream.
@@ -51,9 +51,14 @@ impl<S, E> FromErr<S, E> {
 impl<S: Stream, E: From<S::Error>> Stream for FromErr<S, E> {
     type Item = S::Item;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, E> {
-        let e = match self.stream.poll() {
+impl<S, E, TaskT> PollableStream<TaskT> for FromErr<S, E>
+    where S: PollableStream<TaskT>,
+          E: From<S::Error>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, E> {
+        let e = match self.stream.poll(task) {
             Ok(Async::NotReady) => return Ok(Async::NotReady),
             other => other,
         };
@@ -65,16 +70,20 @@ impl<S: Stream, E: From<S::Error>> Stream for FromErr<S, E> {
 impl<S: Stream + ::sink::Sink, E> ::sink::Sink for FromErr<S, E> {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: Self::SinkItem) -> ::StartSend<Self::SinkItem, Self::SinkError> {
-        self.stream.start_send(item)
+impl<S, E, TaskT> ::sink::PollableSink<TaskT> for FromErr<S, E>
+    where S: PollableSink<TaskT> + Stream
+{
+    fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem) -> ::StartSend<Self::SinkItem, Self::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        self.stream.close(task)
     }
 }

@@ -2,7 +2,7 @@ use std::prelude::v1::*;
 
 use std::mem;
 
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable, PollableStream};
 use stream::Stream;
 
 /// A future which collects all of the values of a stream into a vector.
@@ -35,10 +35,14 @@ impl<S> Future for Collect<S>
 {
     type Item = Vec<S::Item>;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Vec<S::Item>, S::Error> {
+impl<S, TaskT> Pollable<TaskT> for Collect<S>
+    where S: PollableStream<TaskT>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Vec<S::Item>, S::Error> {
         loop {
-            match self.stream.poll() {
+            match self.stream.poll(task) {
                 Ok(Async::Ready(Some(e))) => self.items.push(e),
                 Ok(Async::Ready(None)) => return Ok(Async::Ready(self.finish())),
                 Ok(Async::NotReady) => return Ok(Async::NotReady),

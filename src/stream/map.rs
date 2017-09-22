@@ -1,4 +1,4 @@
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 use stream::Stream;
 
 /// A stream combinator which will change the type of a stream from one
@@ -53,17 +53,21 @@ impl<S, F> ::sink::Sink for Map<S, F>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+impl<S, F, TaskT> ::sink::PollableSink<TaskT> for Map<S, F>
+    where S: ::sink::PollableSink<TaskT>
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -73,9 +77,14 @@ impl<S, F, U> Stream for Map<S, F>
 {
     type Item = U;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<U>, S::Error> {
-        let option = try_ready!(self.stream.poll());
+impl<S, F, U, TaskT> PollableStream<TaskT> for Map<S, F>
+    where S: PollableStream<TaskT>,
+          F: FnMut(S::Item) -> U,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<U>, S::Error> {
+        let option = try_ready!(self.stream.poll(task));
         Ok(Async::Ready(option.map(&mut self.f)))
     }
 }

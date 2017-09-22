@@ -1,4 +1,4 @@
-use {Poll, Async};
+use {Poll, Async, PollableStream};
 use stream::Stream;
 
 /// A combinator used to flatten a stream-of-streams into one long stream of
@@ -56,17 +56,21 @@ impl<S> ::sink::Sink for Flatten<S>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+impl<S, TaskT> ::sink::PollableSink<TaskT> for Flatten<S>
+    where S: ::sink::PollableSink<TaskT> + Stream
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -77,17 +81,23 @@ impl<S> Stream for Flatten<S>
 {
     type Item = <S::Item as Stream>::Item;
     type Error = <S::Item as Stream>::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<S, TaskT> PollableStream<TaskT> for Flatten<S>
+    where S: PollableStream<TaskT>,
+          S::Item: PollableStream<TaskT>,
+          <S::Item as Stream>::Error: From<S::Error>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             if self.next.is_none() {
-                match try_ready!(self.stream.poll()) {
+                match try_ready!(self.stream.poll(task)) {
                     Some(e) => self.next = Some(e),
                     None => return Ok(Async::Ready(None)),
                 }
             }
             assert!(self.next.is_some());
-            match self.next.as_mut().unwrap().poll() {
+            match self.next.as_mut().unwrap().poll(task) {
                 Ok(Async::Ready(None)) => self.next = None,
                 other => return other,
             }

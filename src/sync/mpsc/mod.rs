@@ -81,7 +81,7 @@ use task::{self, Task};
 use future::Executor;
 use sink::SendAll;
 use resultstream::{self, Results};
-use {Async, AsyncSink, Future, Poll, StartSend, Sink, Stream};
+use {Async, AsyncSink, Future, Poll, StartSend, Sink, Stream, PollableStream, PollableSink};
 
 mod queue;
 
@@ -633,8 +633,10 @@ impl<T> Sender<T> {
 impl<T> Sink for Sender<T> {
     type SinkItem = T;
     type SinkError = SendError<T>;
+}
 
-    fn start_send(&mut self, msg: T) -> StartSend<T, SendError<T>> {
+impl<T, TaskT> PollableSink<TaskT> for Sender<T> {
+    fn start_send(&mut self, task: &mut TaskT, msg: T) -> StartSend<T, SendError<T>> {
         // If the sender is currently blocked, reject the message before doing
         // any work.
         if !self.poll_unparked(true).is_ready() {
@@ -647,11 +649,11 @@ impl<T> Sink for Sender<T> {
         Ok(AsyncSink::Ready)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), SendError<T>> {
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), SendError<T>> {
         Ok(Async::Ready(()))
     }
 
-    fn close(&mut self) -> Poll<(), SendError<T>> {
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), SendError<T>> {
         Ok(Async::Ready(()))
     }
 }
@@ -899,8 +901,10 @@ impl<T> Receiver<T> {
 impl<T> Stream for Receiver<T> {
     type Item = T;
     type Error = ();
+}
 
-    fn poll(&mut self) -> Poll<Option<T>, ()> {
+impl<T, TaskT> PollableStream<TaskT> for Receiver<T> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T>, ()> {
         loop {
             // Try to read a message off of the message queue.
             let msg = match self.next_message() {

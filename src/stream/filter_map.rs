@@ -1,4 +1,4 @@
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 use stream::Stream;
 
 /// A combinator used to filter the results of a stream and simultaneously map
@@ -53,17 +53,21 @@ impl<S, F> ::sink::Sink for FilterMap<S, F>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+impl<S, F, TaskT> ::sink::PollableSink<TaskT> for FilterMap<S, F>
+    where S: ::sink::PollableSink<TaskT>
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -73,10 +77,15 @@ impl<S, F, B> Stream for FilterMap<S, F>
 {
     type Item = B;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<B>, S::Error> {
+impl<S, F, B, TaskT> PollableStream<TaskT> for FilterMap<S, F>
+    where S: PollableStream<TaskT>,
+          F: FnMut(S::Item) -> Option<B>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<B>, S::Error> {
         loop {
-            match try_ready!(self.stream.poll()) {
+            match try_ready!(self.stream.poll(task)) {
                 Some(e) => {
                     if let Some(e) = (self.f)(e) {
                         return Ok(Async::Ready(Some(e)))

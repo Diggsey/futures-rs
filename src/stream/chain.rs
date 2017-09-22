@@ -1,7 +1,7 @@
 use core::mem;
 
 use stream::Stream;
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 
 
 /// State of chain stream.
@@ -36,15 +36,19 @@ impl<S1, S2> Stream for Chain<S1, S2>
 {
     type Item = S1::Item;
     type Error = S1::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<S1, S2, TaskT> PollableStream<TaskT> for Chain<S1, S2>
+    where S1: PollableStream<TaskT>, S2: PollableStream<TaskT, Item=S1::Item, Error=S1::Error>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
             match self.state {
-                State::First(ref mut s1, ref _s2) => match s1.poll() {
+                State::First(ref mut s1, ref _s2) => match s1.poll(task) {
                     Ok(Async::Ready(None)) => (), // roll
                     x => return x,
                 },
-                State::Second(ref mut s2) => return s2.poll(),
+                State::Second(ref mut s2) => return s2.poll(task),
                 State::Temp => unreachable!(),
             }
 

@@ -1,4 +1,4 @@
-use Poll;
+use {Poll, PollableStream};
 use stream::Stream;
 
 /// A stream combinator which will change the error type of a stream from one
@@ -53,17 +53,21 @@ impl<S, F> ::sink::Sink for MapErr<S, F>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+impl<S, F, TaskT> ::sink::PollableSink<TaskT> for MapErr<S, F>
+    where S: ::sink::PollableSink<TaskT>
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -73,8 +77,13 @@ impl<S, F, U> Stream for MapErr<S, F>
 {
     type Item = S::Item;
     type Error = U;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, U> {
-        self.stream.poll().map_err(&mut self.f)
+impl<S, F, U, TaskT> PollableStream<TaskT> for MapErr<S, F>
+    where S: PollableStream<TaskT>,
+          F: FnMut(S::Error) -> U,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, U> {
+        self.stream.poll(task).map_err(&mut self.f)
     }
 }

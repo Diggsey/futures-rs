@@ -1,4 +1,4 @@
-use {Poll, Async};
+use {Poll, Async, PollableStream};
 use stream::Stream;
 
 /// A stream which emits single element and then EOF.
@@ -24,8 +24,10 @@ pub fn once<T, E>(item: Result<T, E>) -> Once<T, E> {
 impl<T, E> Stream for Once<T, E> {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<T>, E> {
+impl<T, E, TaskT> PollableStream<TaskT> for Once<T, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T>, E> {
         match self.0.take() {
             Some(Ok(e)) => Ok(Async::Ready(Some(e))),
             Some(Err(e)) => Err(e),

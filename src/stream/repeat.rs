@@ -3,7 +3,7 @@ use core::marker;
 
 use stream::Stream;
 
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 
 
 /// Stream that produces the same element repeatedly.
@@ -46,8 +46,12 @@ impl<T, E> Stream for Repeat<T, E>
 {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<T, E, TaskT> PollableStream<TaskT> for Repeat<T, E>
+    where T: Clone
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         Ok(Async::Ready(Some(self.item.clone())))
     }
 }

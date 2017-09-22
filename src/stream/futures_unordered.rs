@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicPtr, AtomicBool};
 use std::sync::{Arc, Weak};
 use std::usize;
 
-use {task, Stream, Future, Poll, Async, IntoFuture};
+use {task, Stream, Future, Poll, Async, IntoFuture, PollableStream, Pollable};
 use executor::{Notify, UnsafeNotify, NotifyHandle};
 use task_impl::{self, AtomicTask};
 
@@ -277,8 +277,12 @@ impl<T> Stream for FuturesUnordered<T>
 {
     type Item = T::Item;
     type Error = T::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<T::Item>, T::Error> {
+impl<T, TaskT> PollableStream<TaskT> for FuturesUnordered<T>
+    where T: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T::Item>, T::Error> {
         // Ensure `parent` is correctly set.
         self.inner.parent.register();
 
@@ -371,7 +375,7 @@ impl<T> Stream for FuturesUnordered<T>
                 let res = {
                     let notify = NodeToHandle(bomb.node.as_ref().unwrap());
                     task_impl::with_notify(&notify, 0, || {
-                        future.poll()
+                        future.poll(task)
                     })
                 };
 

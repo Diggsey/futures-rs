@@ -1,6 +1,6 @@
 use std::fmt;
 
-use {Async, IntoFuture, Poll};
+use {Async, IntoFuture, Poll, PollableStream, Pollable};
 use stream::{Stream, Fuse, FuturesOrdered};
 
 /// An adaptor for a stream of futures to execute the futures concurrently, if
@@ -81,17 +81,23 @@ impl<S> ::sink::Sink for Buffered<S>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+// Forwarding impl of Sink from the underlying stream
+impl<S, TaskT> ::sink::PollableSink<TaskT> for Buffered<S>
+    where S: ::sink::PollableSink<TaskT> + Stream,
+          S::Item: IntoFuture,
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -101,12 +107,18 @@ impl<S> Stream for Buffered<S>
 {
     type Item = <S::Item as IntoFuture>::Item;
     type Error = <S as Stream>::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<S, TaskT> PollableStream<TaskT> for Buffered<S>
+    where S: PollableStream<TaskT>,
+          S::Item: IntoFuture<Error=<S as Stream>::Error>,
+          <S::Item as IntoFuture>::Future: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         // First up, try to spawn off as many futures as possible by filling up
         // our slab of futures.
         while self.queue.len() < self.max {
-            let future = match self.stream.poll()? {
+            let future = match self.stream.poll(task)? {
                 Async::Ready(Some(s)) => s.into_future(),
                 Async::Ready(None) |
                 Async::NotReady => break,
@@ -116,7 +128,7 @@ impl<S> Stream for Buffered<S>
         }
 
         // Try polling a new future
-        if let Some(val) = try_ready!(self.queue.poll()) {
+        if let Some(val) = try_ready!(self.queue.poll(task)) {
             return Ok(Async::Ready(Some(val)));
         }
 

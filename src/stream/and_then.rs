@@ -1,4 +1,4 @@
-use {IntoFuture, Future, Poll, Async};
+use {IntoFuture, Future, Poll, Async, PollableStream, Pollable};
 use stream::Stream;
 
 /// A stream combinator which chains a computation onto values produced by a
@@ -60,17 +60,21 @@ impl<S, F, U: IntoFuture> ::sink::Sink for AndThen<S, F, U>
 {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
-        self.stream.start_send(item)
+impl<S, F, U: IntoFuture, TaskT> ::sink::PollableSink<TaskT> for AndThen<S, F, U>
+    where S: ::sink::PollableSink<TaskT>
+{
+    fn start_send(&mut self, task: &mut TaskT, item: S::SinkItem) -> ::StartSend<S::SinkItem, S::SinkError> {
+        self.stream.start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), S::SinkError> {
-        self.stream.close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> {
+        self.stream.close(task)
     }
 }
 
@@ -81,17 +85,24 @@ impl<S, F, U> Stream for AndThen<S, F, U>
 {
     type Item = U::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<U::Item>, S::Error> {
+impl<S, F, U, TaskT> PollableStream<TaskT> for AndThen<S, F, U>
+    where S: PollableStream<TaskT>,
+          F: FnMut(S::Item) -> U,
+          U: IntoFuture<Error=S::Error>,
+          U::Future: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<U::Item>, S::Error> {
         if self.future.is_none() {
-            let item = match try_ready!(self.stream.poll()) {
+            let item = match try_ready!(self.stream.poll(task)) {
                 None => return Ok(Async::Ready(None)),
                 Some(e) => e,
             };
             self.future = Some((self.f)(item).into_future());
         }
         assert!(self.future.is_some());
-        match self.future.as_mut().unwrap().poll() {
+        match self.future.as_mut().unwrap().poll(task) {
             Ok(Async::Ready(e)) => {
                 self.future = None;
                 Ok(Async::Ready(Some(e)))

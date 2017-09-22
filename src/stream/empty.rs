@@ -1,7 +1,7 @@
 use core::marker;
 
 use stream::Stream;
-use {Poll, Async};
+use {Poll, Async, PollableStream};
 
 /// A stream which contains no elements.
 ///
@@ -22,8 +22,10 @@ pub fn empty<T, E>() -> Empty<T, E> {
 impl<T, E> Stream for Empty<T, E> {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<T, E, TaskT> PollableStream<TaskT> for Empty<T, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         Ok(Async::Ready(None))
     }
 }

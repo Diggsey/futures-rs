@@ -1,7 +1,7 @@
 #![deprecated(note = "implemention moved to `iter_ok`")]
 #![allow(deprecated)]
 
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 use stream::Stream;
 
 /// A stream which is just a shim over an underlying instance of `Iterator`.
@@ -41,8 +41,12 @@ impl<I, T, E> Stream for Iter<I>
 {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<T>, E> {
+impl<I, T, E, TaskT> PollableStream<TaskT> for Iter<I>
+    where I: Iterator<Item=Result<T, E>>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T>, E> {
         match self.iter.next() {
             Some(Ok(e)) => Ok(Async::Ready(Some(e))),
             Some(Err(e)) => Err(e),

@@ -1,4 +1,4 @@
-use {Stream, Poll, Async};
+use {Stream, Poll, Async, PollableStream};
 
 /// Do something with the items of a stream, passing it on.
 ///
@@ -51,9 +51,14 @@ impl<S, F> Stream for Inspect<S, F>
 {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, S::Error> {
-        match try_ready!(self.stream.poll()) {
+impl<S, F, TaskT> PollableStream<TaskT> for Inspect<S, F>
+    where S: PollableStream<TaskT>,
+          F: FnMut(&S::Item),
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, S::Error> {
+        match try_ready!(self.stream.poll(task)) {
             Some(e) => {
                 (self.inspect)(&e);
                 Ok(Async::Ready(Some(e)))

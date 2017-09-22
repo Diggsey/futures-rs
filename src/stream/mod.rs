@@ -128,9 +128,13 @@ if_std! {
     impl<S: ?Sized + Stream> Stream for ::std::boxed::Box<S> {
         type Item = S::Item;
         type Error = S::Error;
+    }
 
-        fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-            (**self).poll()
+    impl<S, TaskT> PollableStream<TaskT> for ::std::boxed::Box<S>
+        where S: ?Sized + PollableStream<TaskT>
+    {
+        fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
+            (**self).poll(task)
         }
     }
 }
@@ -1091,8 +1095,12 @@ pub trait Stream {
 impl<'a, S: ?Sized + Stream> Stream for &'a mut S {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        (**self).poll()
+impl<'a, S, TaskT> PollableStream<TaskT> for &'a mut S
+    where S: ?Sized + PollableStream<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
+        (**self).poll(task)
     }
 }

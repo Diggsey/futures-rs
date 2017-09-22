@@ -1,4 +1,4 @@
-use {Future, Poll, Async};
+use {Future, Poll, Async, Pollable, PollableStream};
 use stream::Stream;
 
 /// A combinator used to temporarily convert a stream into a future.
@@ -17,11 +17,15 @@ pub fn new<S: Stream>(s: S) -> StreamFuture<S> {
 impl<S: Stream> Future for StreamFuture<S> {
     type Item = (Option<S::Item>, S);
     type Error = (S::Error, S);
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<S, TaskT> Pollable<TaskT> for StreamFuture<S>
+    where S: PollableStream<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         let item = {
             let s = self.stream.as_mut().expect("polling StreamFuture twice");
-            match s.poll() {
+            match s.poll(task) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(e)) => Ok(e),
                 Err(e) => Err(e),

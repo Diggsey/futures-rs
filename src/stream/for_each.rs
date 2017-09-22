@@ -1,4 +1,4 @@
-use {Async, Future, IntoFuture, Poll};
+use {Async, Future, IntoFuture, Poll, Pollable, PollableStream};
 use stream::Stream;
 
 /// A stream combinator which executes a unit closure over each item on a
@@ -32,17 +32,24 @@ impl<S, F, U> Future for ForEach<S, F, U>
 {
     type Item = ();
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<(), S::Error> {
+impl<S, F, U, TaskT> Pollable<TaskT> for ForEach<S, F, U>
+    where S: PollableStream<TaskT>,
+          F: FnMut(S::Item) -> U,
+          U: IntoFuture<Item= (), Error = S::Error>,
+          U::Future: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<(), S::Error> {
         loop {
             if let Some(mut fut) = self.fut.take() {
-                if fut.poll()?.is_not_ready() {
+                if fut.poll(task)?.is_not_ready() {
                     self.fut = Some(fut);
                     return Ok(Async::NotReady);
                 }
             }
 
-            match try_ready!(self.stream.poll()) {
+            match try_ready!(self.stream.poll(task)) {
                 Some(e) => self.fut = Some((self.f)(e).into_future()),
                 None => return Ok(Async::Ready(())),
             }

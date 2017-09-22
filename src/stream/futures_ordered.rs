@@ -2,7 +2,7 @@ use std::cmp::{Eq, PartialEq, PartialOrd, Ord, Ordering};
 use std::collections::BinaryHeap;
 use std::fmt::{self, Debug};
 
-use {Async, Future, IntoFuture, Poll, Stream};
+use {Async, Future, IntoFuture, Poll, Stream, Pollable, PollableStream};
 use stream::FuturesUnordered;
 
 #[derive(Debug)]
@@ -37,9 +37,13 @@ impl<T> Future for OrderWrapper<T>
 {
     type Item = OrderWrapper<T::Item>;
     type Error = T::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let result = try_ready!(self.item.poll());
+impl<T, TaskT> Pollable<TaskT> for OrderWrapper<T>
+    where T: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
+        let result = try_ready!(self.item.poll(task));
         Ok(Async::Ready(OrderWrapper {
             item: result,
             index: self.index
@@ -164,11 +168,15 @@ impl<T> Stream for FuturesOrdered<T>
 {
     type Item = T::Item;
     type Error = T::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<T, TaskT> PollableStream<TaskT> for FuturesOrdered<T>
+    where T: Pollable<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         // Get any completed futures from the unordered set.
         loop {
-            match self.in_progress.poll()? {
+            match self.in_progress.poll(task)? {
                 Async::Ready(Some(result)) => self.queued_results.push(result),
                 Async::Ready(None) | Async::NotReady => break,
             }

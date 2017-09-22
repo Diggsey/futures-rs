@@ -6,7 +6,7 @@ use std::any::Any;
 use std::error::Error;
 use std::fmt;
 
-use {Poll, Async, Stream, Future, Sink};
+use {Poll, Async, Stream, Future, Sink, PollableStream, Pollable};
 use sink::Send;
 use sync::mpsc;
 
@@ -80,9 +80,11 @@ impl<T, E> Error for SendError<T, E>
 impl<T, E> Stream for Receiver<T, E> {
     type Item = T;
     type Error = E;
+}
 
-    fn poll(&mut self) -> Poll<Option<T>, E> {
-        match self.inner.poll().expect("cannot fail") {
+impl<T, E, TaskT> PollableStream<TaskT> for Receiver<T, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<T>, E> {
+        match self.inner.poll(task).expect("cannot fail") {
             Async::Ready(Some(Ok(e))) => Ok(Async::Ready(Some(e))),
             Async::Ready(Some(Err(e))) => Err(e),
             Async::Ready(None) => Ok(Async::Ready(None)),
@@ -104,9 +106,11 @@ impl<T, E> Sender<T, E> {
 impl<T, E> Future for FutureSender<T, E> {
     type Item = Sender<T, E>;
     type Error = SendError<T, E>;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.inner.poll() {
+impl<T, E, TaskT> Pollable<TaskT> for FutureSender<T, E> {
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
+        match self.inner.poll(task) {
             Ok(a) => Ok(a.map(|a| Sender { inner: a })),
             Err(e) => Err(SendError(e.into_inner())),
         }

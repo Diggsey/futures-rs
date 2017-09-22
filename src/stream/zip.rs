@@ -1,4 +1,4 @@
-use {Async, Poll};
+use {Async, Poll, PollableStream};
 use stream::{Stream, Fuse};
 
 /// An adapter for merging the output of two streams.
@@ -31,16 +31,20 @@ impl<S1, S2> Stream for Zip<S1, S2>
 {
     type Item = (S1::Item, S2::Item);
     type Error = S1::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<S1, S2, TaskT> PollableStream<TaskT> for Zip<S1, S2>
+    where S1: PollableStream<TaskT>, S2: PollableStream<TaskT, Error = S1::Error>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<Self::Item>, Self::Error> {
         if self.queued1.is_none() {
-            match self.stream1.poll()? {
+            match self.stream1.poll(task)? {
                 Async::Ready(Some(item1)) => self.queued1 = Some(item1),
                 Async::Ready(None) | Async::NotReady => {}
             }
         }
         if self.queued2.is_none() {
-            match self.stream2.poll()? {
+            match self.stream2.poll(task)? {
                 Async::Ready(Some(item2)) => self.queued2 = Some(item2),
                 Async::Ready(None) | Async::NotReady => {}
             }

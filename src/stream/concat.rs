@@ -2,7 +2,7 @@ use core::mem;
 use core::fmt::{Debug, Formatter, Result as FmtResult};
 use core::default::Default;
 
-use {Poll, Async};
+use {Poll, Async, Pollable, PollableStream};
 use future::Future;
 use stream::Stream;
 
@@ -41,9 +41,15 @@ impl<S> Future for Concat2<S>
 {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.inner.poll().map(|a| {
+impl<S, TaskT> Pollable<TaskT> for Concat2<S>
+    where S: PollableStream<TaskT>,
+          S::Item: Extend<<<S as Stream>::Item as IntoIterator>::Item> + IntoIterator + Default,
+
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
+        self.inner.poll(task).map(|a| {
             match a {
                 Async::NotReady => Async::NotReady,
                 Async::Ready(None) => Async::Ready(Default::default()),
@@ -89,9 +95,15 @@ impl<S> Future for Concat<S>
 {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        self.inner.poll().map(|a| {
+impl<S, TaskT> Pollable<TaskT> for Concat<S>
+    where S: PollableStream<TaskT>,
+          S::Item: Extend<<<S as Stream>::Item as IntoIterator>::Item> + IntoIterator,
+
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
+        self.inner.poll(task).map(|a| {
             match a {
                 Async::NotReady => Async::NotReady,
                 Async::Ready(None) => panic!("attempted concatenation of empty stream"),
@@ -127,10 +139,16 @@ impl<S> Future for ConcatSafe<S>
 {
     type Item = Option<S::Item>;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+impl<S, TaskT> Pollable<TaskT> for ConcatSafe<S>
+    where S: PollableStream<TaskT>,
+          S::Item: Extend<<<S as Stream>::Item as IntoIterator>::Item> + IntoIterator,
+
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Self::Item, Self::Error> {
         loop {
-            match self.stream.poll() {
+            match self.stream.poll(task) {
                 Ok(Async::Ready(Some(i))) => {
                     match self.extend {
                         Inner::First => {
