@@ -1,4 +1,4 @@
-use {Poll, Async, Future, AsyncSink};
+use {Poll, Async, Future, AsyncSink, PollableSink, Pollable, PollableStream};
 use stream::{Stream, Fuse};
 use sink::Sink;
 
@@ -46,9 +46,11 @@ impl<T, U> SendAll<T, U>
         (sink, fuse.into_inner())
     }
 
-    fn try_start_send(&mut self, item: U::Item) -> Poll<(), T::SinkError> {
+    fn try_start_send<TaskT>(&mut self, task: &mut TaskT, item: U::Item) -> Poll<(), T::SinkError>
+        where T: PollableSink<TaskT>
+    {
         debug_assert!(self.buffered.is_none());
-        if let AsyncSink::NotReady(item) = self.sink_mut().start_send(item)? {
+        if let AsyncSink::NotReady(item) = self.sink_mut().start_send(task, item)? {
             self.buffered = Some(item);
             return Ok(Async::NotReady)
         }
@@ -63,23 +65,29 @@ impl<T, U> Future for SendAll<T, U>
 {
     type Item = (T, U);
     type Error = T::SinkError;
+}
 
-    fn poll(&mut self) -> Poll<(T, U), T::SinkError> {
+impl<T, U, TaskT> Pollable<TaskT> for SendAll<T, U>
+    where T: PollableSink<TaskT>,
+          U: PollableStream<TaskT, Item = T::SinkItem>,
+          T::SinkError: From<U::Error>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<(T, U), T::SinkError> {
         // If we've got an item buffered already, we need to write it to the
         // sink before we can do anything else
         if let Some(item) = self.buffered.take() {
-            try_ready!(self.try_start_send(item))
+            try_ready!(self.try_start_send(task, item))
         }
 
         loop {
-            match self.stream_mut().poll()? {
-                Async::Ready(Some(item)) => try_ready!(self.try_start_send(item)),
+            match self.stream_mut().poll(task)? {
+                Async::Ready(Some(item)) => try_ready!(self.try_start_send(task, item)),
                 Async::Ready(None) => {
-                    try_ready!(self.sink_mut().close());
+                    try_ready!(self.sink_mut().close(task));
                     return Ok(Async::Ready(self.take_result()))
                 }
                 Async::NotReady => {
-                    try_ready!(self.sink_mut().poll_complete());
+                    try_ready!(self.sink_mut().poll_complete(task));
                     return Ok(Async::NotReady)
                 }
             }

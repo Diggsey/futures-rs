@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use {Sink, Poll, StartSend};
+use {Sink, Poll, StartSend, PollableSink};
 
 /// A sink combinator to change the error type of a sink.
 ///
@@ -47,25 +47,34 @@ impl<S, E> Sink for SinkFromErr<S, E>
 {
     type SinkItem = S::SinkItem;
     type SinkError = E;
+}
 
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        self.sink.start_send(item).map_err(|e| e.into())
+impl<S, E, TaskT> PollableSink<TaskT> for SinkFromErr<S, E>
+    where S: PollableSink<TaskT>,
+          E: From<S::SinkError>
+{
+    fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        self.sink.start_send(task, item).map_err(|e| e.into())
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.sink.poll_complete().map_err(|e| e.into())
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        self.sink.poll_complete(task).map_err(|e| e.into())
     }
 
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        self.sink.close().map_err(|e| e.into())
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        self.sink.close(task).map_err(|e| e.into())
     }
 }
 
 impl<S: ::stream::Stream, E> ::stream::Stream for SinkFromErr<S, E> {
     type Item = S::Item;
     type Error = S::Error;
+}
 
-    fn poll(&mut self) -> Poll<Option<S::Item>, S::Error> {
-        self.sink.poll()
+impl<S, E, TaskT> ::stream::PollableStream<TaskT> for SinkFromErr<S, E>
+    where S: ::stream::PollableStream<TaskT>
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, S::Error> {
+        self.sink.poll(task)
     }
 }

@@ -33,19 +33,21 @@ if_std! {
     impl<T> Sink for ::std::vec::Vec<T> {
         type SinkItem = T;
         type SinkError = (); // Change this to ! once it stabilizes
+    }
 
-        fn start_send(&mut self, item: Self::SinkItem)
+    impl<T, TaskT> PollableSink<TaskT> for ::std::vec::Vec<T> {
+        fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem)
                       -> StartSend<Self::SinkItem, Self::SinkError>
         {
             self.push(item);
             Ok(::AsyncSink::Ready)
         }
 
-        fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
+        fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
             Ok(::Async::Ready(()))
         }
 
-        fn close(&mut self) -> Poll<(), Self::SinkError> {
+        fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
             Ok(::Async::Ready(()))
         }
     }
@@ -57,18 +59,22 @@ if_std! {
     impl<S: ?Sized + Sink> Sink for ::std::boxed::Box<S> {
         type SinkItem = S::SinkItem;
         type SinkError = S::SinkError;
+    }
 
-        fn start_send(&mut self, item: Self::SinkItem)
+    impl<S, TaskT> PollableSink<TaskT> for ::std::boxed::Box<S>
+        where S: ?Sized + PollableSink<TaskT>
+    {
+        fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem)
                       -> StartSend<Self::SinkItem, Self::SinkError> {
-            (**self).start_send(item)
+            (**self).start_send(task, item)
         }
 
-        fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-            (**self).poll_complete()
+        fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+            (**self).poll_complete(task)
         }
 
-        fn close(&mut self) -> Poll<(), Self::SinkError> {
-            (**self).close()
+        fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+            (**self).close(task)
         }
     }
 }
@@ -463,17 +469,21 @@ pub trait Sink {
 impl<'a, S: ?Sized + Sink> Sink for &'a mut S {
     type SinkItem = S::SinkItem;
     type SinkError = S::SinkError;
+}
 
-    fn start_send(&mut self, item: Self::SinkItem)
+impl<'a, S, TaskT> PollableSink<TaskT> for &'a mut S
+    where S: ?Sized + PollableSink<TaskT>
+{
+    fn start_send(&mut self, task: &mut TaskT, item: Self::SinkItem)
                   -> StartSend<Self::SinkItem, Self::SinkError> {
-        (**self).start_send(item)
+        (**self).start_send(task, item)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        (**self).poll_complete()
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        (**self).poll_complete(task)
     }
 
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        (**self).close()
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        (**self).close(task)
     }
 }

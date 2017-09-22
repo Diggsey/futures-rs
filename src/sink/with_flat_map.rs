@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use {Poll, Async, StartSend, AsyncSink};
+use {Poll, Async, StartSend, AsyncSink, PollableSink, PollableStream};
 use sink::Sink;
 use stream::Stream;
 
@@ -60,16 +60,16 @@ where
         self.sink
     }
 
-    fn try_empty_stream(&mut self) -> Poll<(), S::SinkError> {
+    fn try_empty_stream<TaskT>(&mut self, task: &mut TaskT) -> Poll<(), S::SinkError> where S: PollableSink<TaskT>, St: PollableStream<TaskT> {
         if let Some(x) = self.buffer.take() {
-            if let AsyncSink::NotReady(x) = self.sink.start_send(x)? {
+            if let AsyncSink::NotReady(x) = self.sink.start_send(task, x)? {
                 self.buffer = Some(x);
                 return Ok(Async::NotReady);
             }
         }
         if let Some(mut stream) = self.stream.take() {
-            while let Some(x) = try_ready!(stream.poll()) {
-                if let AsyncSink::NotReady(x) = self.sink.start_send(x)? {
+            while let Some(x) = try_ready!(stream.poll(task)) {
+                if let AsyncSink::NotReady(x) = self.sink.start_send(task, x)? {
                     self.stream = Some(stream);
                     self.buffer = Some(x);
                     return Ok(Async::NotReady);
@@ -88,8 +88,16 @@ where
 {
     type Item = S::Item;
     type Error = S::Error;
-    fn poll(&mut self) -> Poll<Option<S::Item>, S::Error> {
-        self.sink.poll()
+}
+
+impl<S, U, F, St, TaskT> PollableStream<TaskT> for WithFlatMap<S, U, F, St>
+where
+    S: PollableStream<TaskT> + Sink,
+    F: FnMut(U) -> St,
+    St: Stream<Item = S::SinkItem, Error=S::SinkError>,
+{
+    fn poll(&mut self, task: &mut TaskT) -> Poll<Option<S::Item>, S::Error> {
+        self.sink.poll(task)
     }
 }
 
@@ -101,26 +109,34 @@ where
 {
     type SinkItem = U;
     type SinkError = S::SinkError;
-    fn start_send(&mut self, i: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        if self.try_empty_stream()?.is_not_ready() {
+}
+
+impl<S, U, F, St, TaskT> PollableSink<TaskT> for WithFlatMap<S, U, F, St>
+where
+    S: PollableSink<TaskT>,
+    F: FnMut(U) -> St,
+    St: PollableStream<TaskT, Item = S::SinkItem, Error=S::SinkError>,
+{
+    fn start_send(&mut self, task: &mut TaskT, i: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+        if self.try_empty_stream(task)?.is_not_ready() {
             return Ok(AsyncSink::NotReady(i));
         }
         assert!(self.stream.is_none());
         self.stream = Some((self.f)(i));
-        self.try_empty_stream()?;
+        self.try_empty_stream(task)?;
         Ok(AsyncSink::Ready)
     }
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        if self.try_empty_stream()?.is_not_ready() {
+    fn poll_complete(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        if self.try_empty_stream(task)?.is_not_ready() {
             return Ok(Async::NotReady);
         }
-        self.sink.poll_complete()
+        self.sink.poll_complete(task)
     }
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        if self.try_empty_stream()?.is_not_ready() {
+    fn close(&mut self, task: &mut TaskT) -> Poll<(), Self::SinkError> {
+        if self.try_empty_stream(task)?.is_not_ready() {
             return Ok(Async::NotReady);
         }
         assert!(self.stream.is_none());
-        self.sink.close()
+        self.sink.close(task)
     }
 }
